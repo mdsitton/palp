@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 import urllib.request
 import urllib.parse
+import urllib.error
+import threading
 import platform
 import getpass
 import json
@@ -48,16 +50,74 @@ def get_request(domain, resource, headers={}, disturb=True):
     else:
         return responseData
 
+def find_man_thread(start, stop, titleFolder, downloadUrl, authSuffix):
+    print(start, stop, titleFolder, downloadUrl, authSuffix)
+    for bid in range(start, stop):
+
+        mfnm = 'PA_Linux_%s.gz' % str(bid)
+
+        recComp = (titleFolder, mfnm, authSuffix)
+        resource = '/%s/%s%s' % recComp
+
+        try:
+            manifestCompressed = get_request(downloadUrl, resource, disturb=False)
+            print(bid)
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                continue
+            else:
+                raise e
+
+def find_manifest_versions(streamData):
+
+    # Stream info
+    buildId = streamData['BuildId']#'80187'
+
+    titleFolder = streamData['TitleFolder']
+    downloadUrl = streamData['DownloadUrl']
+    authSuffix = streamData['AuthSuffix']
+
+    threadCount = 2
+    firstBuild = 80150
+    lastBuild = int(buildId)
+
+    count = int((lastBuild - firstBuild) / threadCount)
+
+
+    prevBuild = None
+    threads = []
+
+    for i in range(threadCount):
+        if i == 0:
+            prevBuild = firstBuild -1
+
+        start = prevBuild + 1
+        stop = start + count
+
+        if i == (threadCount - 1):
+            stop = lastBuild + 1
+
+        threadArgs = (start, stop, titleFolder, downloadUrl, authSuffix)
+        thread = threading.Thread(target=find_man_thread, args=threadArgs)
+        threads.append(thread)
+
+        prevBuild = stop
+
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
 class Stream(object):
     def __init__(self, streamData):
 
         # Stream info
-        self.buildId = streamData['BuildId']
+        self.buildId = streamData['BuildId']#'80187'
         self.titleFolder = streamData['TitleFolder']
         self.titleId = streamData['TitleId']
         self.description = streamData['Description']
         self.downloadUrl = streamData['DownloadUrl']
-        self.manifestName = streamData['ManifestName']
+        self.manifestName = streamData['ManifestName']#'PA_Linux_80187.gz'
         self.streamName = streamData['StreamName']
         self.authSuffix = streamData['AuthSuffix']
 
@@ -68,14 +128,100 @@ class Stream(object):
     def aquire_manifest(self):
 
         recComp = (self.titleFolder, self.manifestName, self.authSuffix)
-
         resource = '/%s/%s%s' % recComp
 
-        manifestCompressed = get_request(self.downloadUrl, resource, disturb=False)
+        try:
+            manifestCompressed = get_request(self.downloadUrl, resource, disturb=False)
 
-        manifestJson = gzip.decompress(manifestCompressed).decode('utf-8')
+            manifestJson = gzip.decompress(manifestCompressed).decode('utf-8')
 
-        self.manifest = json.loads(manifestJson)
+            self.manifest = json.loads(manifestJson)
+
+        except urllib.error.HTTPError as e:
+            if e.code == 404:
+                print(self.manifestName, 'Not found')
+            else:
+                raise e
+
+
+    def bundle_download(self):
+        bundles = self.manifest['bundles']
+
+        # path = os.getcwd() + '/' + location
+
+        totalLeftover = 0
+
+        print("Total Bundle Cout:", len(bundles))
+
+        for i, bundle in enumerate(bundles):
+
+            bsize = int(bundle['size'])
+
+            bundleUsedSize = 0
+
+            #skipDownload = True
+            #for entry in bundle['entries']:
+                #if 'version.txt' in entry['filename']:
+            skipDownload = False
+
+            if skipDownload:
+                print('bundle %s skipped' % i)
+                continue
+
+
+            print('Bundle #%i' % i, 'Total Size:%s' % bsize)
+
+            recComp = (self.titleFolder, bundle['checksum'], self.authSuffix)
+            resource = '/%s/hashed/%s%s' % recComp
+            
+            bundleData = get_request(self.downloadUrl, resource, disturb=False)
+
+            entryOffsetDupeCheck = []
+
+            for entry in bundle['entries']:
+                print(entry['filename'])
+
+                #if there is no checksumZ there is no compression.
+                if entry['checksumZ'] == '':
+                    entrySize = int(entry['size'])
+                    entryOffset = int(entry['offset'])
+
+                    if entryOffset not in entryOffsetDupeCheck:
+                        entryOffsetDupeCheck.append(entryOffset)
+                        bundleUsedSize += entrySize
+                    else:
+                        print("DUPLICATE OFFSET FOUND!!!!!")
+
+                    #(entrySize, entryOffset)
+
+                    entryData = bundleData[entryOffset:entryOffset+entrySize]#gzip.decompress()
+
+                    print('Bundle Entry Length:', len(bundleData[entryOffset:entryOffset+entrySize]))
+
+                else:
+                    entrySize = int(entry['sizeZ'])
+                    entryOffset = int(entry['offset'])
+
+                    if entryOffset not in entryOffsetDupeCheck:
+                        entryOffsetDupeCheck.append(entryOffset)
+                        bundleUsedSize += entrySize
+                    else:
+                        print("DUPLICATE OFFSET FOUND!!!!!")
+
+                    entryData = gzip.decompress(bundleData[entryOffset:entryOffset+entrySize])
+
+                    print('Bundle Entry Length:', len(bundleData[entryOffset:entryOffset+entrySize]))
+
+
+                # Ubers servers don't support the Range header :(
+                # headers = {'Range': '1-2'}
+
+            leftover = bsize - bundleUsedSize
+            totalLeftover += leftover
+            print('Unindexed size: ', leftover)
+
+        print(totalLeftover / 1000 / 1000)
+
 
 
 class UberConnect(object):
@@ -158,9 +304,11 @@ if __name__ == '__main__':
 
     selectedStream = streamInfo[int(input('> '))-1]
 
+    #for stream in uber.streams:
+    #    if stream['StreamName'] == 'stable':
+    #        find_manifest_versions(stream)
+
     stream = uber.select_stream(selectedStream['name'])
 
     stream.aquire_manifest()
-
-    stream.manifest
-
+    stream.bundle_download()
