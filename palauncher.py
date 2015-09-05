@@ -50,11 +50,14 @@ def get_request(domain, resource, headers={}, disturb=True):
     else:
         return responseData
 
-def find_man_thread(start, stop, titleFolder, downloadUrl, authSuffix):
+def find_man_thread(start, stop, titleFolder, downloadUrl, authSuffix, pteBuild):
     print(start, stop, titleFolder, downloadUrl, authSuffix)
     for bid in range(start, stop):
 
-        mfnm = 'PA_Linux_%s.gz' % str(bid)
+        if pteBuild:
+            mfnm = 'PA_Linux_%s-pte.gz' % str(bid)
+        else:
+            mfnm = 'PA_Linux_%s.gz' % str(bid)
 
         recComp = (titleFolder, mfnm, authSuffix)
         resource = '/%s/%s%s' % recComp
@@ -77,9 +80,17 @@ def find_manifest_versions(streamData):
     downloadUrl = streamData['DownloadUrl']
     authSuffix = streamData['AuthSuffix']
 
+    pteBuild = False
+    if 'pte' in buildId:
+        pteBuild = True
+
     threadCount = 2
-    firstBuild = 80150
-    lastBuild = int(buildId)
+    firstBuild = 80000
+
+    if pteBuild:
+        lastBuild = int(buildId.split('-', 1)[0])
+    else:
+        lastBuild = int(buildId)
 
     count = int((lastBuild - firstBuild) / threadCount)
 
@@ -97,7 +108,7 @@ def find_manifest_versions(streamData):
         if i == (threadCount - 1):
             stop = lastBuild + 1
 
-        threadArgs = (start, stop, titleFolder, downloadUrl, authSuffix)
+        threadArgs = (start, stop, titleFolder, downloadUrl, authSuffix, pteBuild)
         thread = threading.Thread(target=find_man_thread, args=threadArgs)
         threads.append(thread)
 
