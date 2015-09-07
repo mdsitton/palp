@@ -195,7 +195,7 @@ class Stream(object):
                     if d.hexdigest() == entry['checksum']:
                         continue
 
-                    skipDownload = False
+                skipDownload = False
 
             if skipDownload:
                 print('bundle %s skipped' % i)
@@ -208,50 +208,65 @@ class Stream(object):
             resource = '/%s/hashed/%s%s' % recComp
             
             # Check that the download is correct if not restart
+            times = 0
             while True:
+                times += 1
+                print('Times:', times)
                 bundleData = get_request(self.downloadUrl, resource, disturb=False)
 
 
-                bundleSHA1 = hashlib.sha1().hexdigest()
+                bundleSHA1 = hashlib.sha1(bundleData).hexdigest()
                 if bundleSHA1 == bundle['checksum']:
                     break
 
             entryOffsetDupeCheck = []
+            entryOffsetDupeCheckSize = []
 
             for entry in bundle['entries']:
                 print(entry['filename'])
-
 
                 #if there is no checksumZ there is no compression.
                 if entry['checksumZ'] == '':
                     entrySize = int(entry['size'])
                     entryOffset = int(entry['offset'])
 
-                    if entryOffset not in entryOffsetDupeCheck:
-                        entryOffsetDupeCheck.append(entryOffset)
-                        bundleUsedSize += entrySize
-                    else:
-                        print("DUPLICATE OFFSET FOUND!!!!!")
-
-                    #(entrySize, entryOffset)
-
-                    entryData = bundleData[entryOffset:entryOffset+entrySize]#gzip.decompress()
-
-                    print('Bundle Entry Length:', len(bundleData[entryOffset:entryOffset+entrySize]))
-
                 else:
                     entrySize = int(entry['sizeZ'])
                     entryOffset = int(entry['offset'])
 
-                    if entryOffset not in entryOffsetDupeCheck:
-                        entryOffsetDupeCheck.append(entryOffset)
-                        bundleUsedSize += entrySize
-                    else:
-                        print("DUPLICATE OFFSET FOUND!!!!!")
+                # copy lists because it is not safe to iterate over
+                # a list that you are changing.
+                offsetDupeCopy = entryOffsetDupeCheck[:]
+                offsetDupeSizeCopy = entryOffsetDupeCheckSize[:]
 
+                foundMatch = False
+
+                for i, offset in enumerate(offsetDupeCopy):
+                    if offset == entryOffset:
+                        print('Offset Index of Duplicate:', i)
+                        if offsetDupeSizeCopy[i] == entrySize:
+                            print('DUPLICATE OFFSET FOUND!!!!!')
+                        else:
+                            if entrySize > offsetDupeSizeCopy[i]:
+                                print ('DUPLICATE OFFSET FOUND LARGER THAN ORIGINAL!!!')
+                                bundleUsedSize += entrySize - offsetDupeSizeCopy[i]
+                            else:
+                                print ('DUPLICATE OFFSET FOUND SMALLER THAN ORIGINAL!!!')
+                        foundMatch = True
+                        break
+                if not foundMatch:
+                    print('Offset Index:', len(offsetDupeCopy))
+                    entryOffsetDupeCheck.append(entryOffset)
+                    entryOffsetDupeCheckSize.append(entrySize)
+                    bundleUsedSize += entrySize
+
+                #if there is no checksumZ there is no compression.
+                if entry['checksumZ'] == '':
+                    entryData = bundleData[entryOffset:entryOffset+entrySize]#gzip.decompress()
+                else:
                     entryData = gzip.decompress(bundleData[entryOffset:entryOffset+entrySize])
 
-                    print('Bundle Entry Length:', len(bundleData[entryOffset:entryOffset+entrySize]))
+                print('Bundle Entry Length:', len(bundleData[entryOffset:entryOffset+entrySize]))
 
                 try:
                     os.makedirs(fullPath.rsplit('/', 1)[0])
