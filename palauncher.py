@@ -148,6 +148,11 @@ class Stream(object):
 
             self.manifest = json.loads(manifestJson)
 
+
+            with open(os.getcwd() + '/' + 'manifest.json', 'wb') as f:
+                f.write(manifestJson.encode('ascii'))
+
+
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 print(self.manifestName, 'Not found')
@@ -158,7 +163,7 @@ class Stream(object):
     def bundle_download(self):
         bundles = self.manifest['bundles']
 
-        # path = os.getcwd() + '/' + location
+        path = os.getcwd() + '/' + self.titleFolder
 
         totalLeftover = 0
 
@@ -222,6 +227,16 @@ class Stream(object):
                     entryData = gzip.decompress(bundleData[entryOffset:entryOffset+entrySize])
 
                     print('Bundle Entry Length:', len(bundleData[entryOffset:entryOffset+entrySize]))
+
+                fullPath = path + entry['filename']
+
+                try:
+                    os.makedirs(fullPath.rsplit('/', 1)[0])
+                except FileExistsError:
+                    pass
+
+                with open(fullPath, 'wb') as f:
+                    f.write(entryData)
 
 
                 # Ubers servers don't support the Range header :(
