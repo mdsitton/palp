@@ -5,8 +5,10 @@ import urllib.error
 import threading
 import platform
 import getpass
+import hashlib
 import json
 import gzip
+import stat
 import ssl
 import os
 
@@ -175,10 +177,25 @@ class Stream(object):
 
             bundleUsedSize = 0
 
-            #skipDownload = True
-            #for entry in bundle['entries']:
-                #if 'version.txt' in entry['filename']:
-            skipDownload = False
+            # Pre-screen to se what bundles need to be downloaded.
+            skipDownload = True
+            for entry in bundle['entries']:
+                print(entry['filename'])
+
+                fullPath = path + entry['filename']
+                if os.path.isfile(fullPath):
+                    d = hashlib.sha1()
+                    with open(fullPath, 'rb') as f:
+                        while True:
+                            buf = f.read(4096)
+                            if not buf:
+                                break
+                            d.update(buf)
+
+                    if d.hexdigest() == entry['checksum']:
+                        continue
+
+                    skipDownload = False
 
             if skipDownload:
                 print('bundle %s skipped' % i)
@@ -190,12 +207,20 @@ class Stream(object):
             recComp = (self.titleFolder, bundle['checksum'], self.authSuffix)
             resource = '/%s/hashed/%s%s' % recComp
             
-            bundleData = get_request(self.downloadUrl, resource, disturb=False)
+            # Check that the download is correct if not restart
+            while True:
+                bundleData = get_request(self.downloadUrl, resource, disturb=False)
+
+
+                bundleSHA1 = hashlib.sha1().hexdigest()
+                if bundleSHA1 == bundle['checksum']:
+                    break
 
             entryOffsetDupeCheck = []
 
             for entry in bundle['entries']:
                 print(entry['filename'])
+
 
                 #if there is no checksumZ there is no compression.
                 if entry['checksumZ'] == '':
@@ -228,8 +253,6 @@ class Stream(object):
 
                     print('Bundle Entry Length:', len(bundleData[entryOffset:entryOffset+entrySize]))
 
-                fullPath = path + entry['filename']
-
                 try:
                     os.makedirs(fullPath.rsplit('/', 1)[0])
                 except FileExistsError:
@@ -237,6 +260,11 @@ class Stream(object):
 
                 with open(fullPath, 'wb') as f:
                     f.write(entryData)
+
+                if 'executable' in entry:
+                    os.chmod(fullPath, stat.S_IRWXU | stat.S_IXGRP | stat.S_IRGRP | stat.S_IROTH | stat.S_IXOTH)
+                else:
+                    os.chmod(fullPath, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
 
 
                 # Ubers servers don't support the Range header :(
