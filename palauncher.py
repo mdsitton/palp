@@ -224,6 +224,8 @@ class Stream(object):
 
             for entry in bundle['entries']:
                 print(entry['filename'])
+                
+                fullPath = path + entry['filename']
 
                 #if there is no checksumZ there is no compression.
                 if entry['checksumZ'] == '':
