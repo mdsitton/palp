@@ -125,6 +125,8 @@ def find_manifest_versions(streamData):
 class Stream(object):
     def __init__(self, streamData):
 
+        self.streamData = streamData
+
         # Stream info
         self.buildId = streamData['BuildId']#'80187'
         self.titleFolder = streamData['TitleFolder']
@@ -305,14 +307,13 @@ class UberConnect(object):
             self.uberUrl = 'https://uberent.com'
 
         self.session = None
-        self.streams = None
 
-    def login(self, username, password):
+    def login(self, username, password, titleId):
         '''Login to the uber servers.'''
         resource = '/GC/Authenticate'
 
         loginData = {
-            'TitleId': 4,
+            'TitleId': titleId,
             'AuthMethod': 'UberCredentials',
             'UberName': username,
             'Password': password,
@@ -322,21 +323,26 @@ class UberConnect(object):
 
         jsonLogin = json.dumps(loginData)
 
-        jsonResponse = post_request(self.uberUrl, resource, jsonLogin, headers)
+        jsonSession = post_request(self.uberUrl, resource, jsonLogin, headers)
         
-        self.session = json.loads(jsonResponse)
+        self.session = json.loads(jsonSession)
+
+class Streams(object):
+    def __init__(self, uber):
+        self.uber = uber
+        self.streams = None
 
     def aquire_streams(self):
         '''Request and aquire stream lis.'''
         resource = '/Launcher/ListStreams?Platform=%s' % platformName
 
-        headers = {'X-Authorization': self.session['SessionTicket']}
+        headers = {'X-Authorization': self.uber.session['SessionTicket']}
 
-        jsonStreams = get_request(self.uberUrl, resource, headers)
+        jsonStreams = get_request(self.uber.uberUrl, resource, headers)
 
         self.streams = json.loads(jsonStreams)['Streams']
 
-    def stream_info(self):
+    def basic_info(self):
         '''Return basic information about all streams.
            Can be used for user prompts, but also will be needed for correctly
            selecting a stream to download.
@@ -360,27 +366,27 @@ class UberConnect(object):
                 return Stream(stream)
         return None
 
+PA_TITLE_ID = 4
 
 if __name__ == '__main__':
     username = input('Username: ')
     password = getpass.getpass()
     uber = UberConnect()
-    uber.login(username, password)
-    uber.aquire_streams()
-    streamInfo = uber.stream_info()
+    uber.login(username, password, PA_TITLE_ID)
+    streams = Streams(uber)
+    streams.aquire_streams()
+    streamInfo = streams.basic_info()
 
     print('\n\nSelect Build:\n')
     for i, stream in enumerate(streamInfo):
         print('    %s.\t' % (i+1), stream['name'], stream['id'])
         print('\t', stream['description'], '\n')
 
-    selectedStream = streamInfo[int(input('> '))-1]
+    streamName = streamInfo[int(input('> '))-1]['name']
 
-    #for stream in uber.streams:
-    #    if stream['StreamName'] == 'stable':
-    #        find_manifest_versions(stream)
+    stream = streams.select_stream(streamName)
 
-    stream = uber.select_stream(selectedStream['name'])
+    # find_manifest_versions(stream.streamData)
 
     stream.aquire_manifest()
     stream.bundle_download()
