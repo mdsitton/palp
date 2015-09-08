@@ -232,7 +232,9 @@ class Stream(object):
                             d.update(buf)
 
                     if d.hexdigest() == entry['checksum']:
-                        continue
+                        break
+                else:
+                    break
             else:
                 _debug('bundle %s skipped' % i)
                 continue
