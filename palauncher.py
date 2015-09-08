@@ -265,6 +265,9 @@ class Stream(object):
                     entrySize = int(entry['sizeZ'])
                     entryOffset = int(entry['offset'])
 
+
+                _debug('Entry size:', entrySize)
+
                 # copy lists because it is not safe to iterate over
                 # a list that you are changing.
                 offsetDupeCopy = entryOffsetDupeCheck[:]
