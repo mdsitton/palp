@@ -2,6 +2,7 @@
 import urllib.request
 import urllib.parse
 import urllib.error
+import subprocess
 import threading
 import platform
 import getpass
@@ -224,7 +225,7 @@ class Stream(object):
 
             for entry in bundle['entries']:
                 print(entry['filename'])
-                
+
                 fullPath = path + entry['filename']
 
                 #if there is no checksumZ there is no compression.
@@ -303,7 +304,7 @@ class UberConnect(object):
         else:
             self.uberUrl = 'https://uberent.com'
 
-        self.loginSession = None
+        self.session = None
         self.streams = None
 
     def login(self, username, password):
@@ -323,13 +324,13 @@ class UberConnect(object):
 
         jsonResponse = post_request(self.uberUrl, resource, jsonLogin, headers)
         
-        self.loginSession = json.loads(jsonResponse)
+        self.session = json.loads(jsonResponse)
 
     def aquire_streams(self):
         '''Request and aquire stream lis.'''
         resource = '/Launcher/ListStreams?Platform=%s' % platformName
 
-        headers = {'X-Authorization': self.loginSession['SessionTicket']}
+        headers = {'X-Authorization': self.session['SessionTicket']}
 
         jsonStreams = get_request(self.uberUrl, resource, headers)
 
@@ -383,3 +384,5 @@ if __name__ == '__main__':
 
     stream.aquire_manifest()
     stream.bundle_download()
+
+    subprocess.call(['./PA/PA', '--ticket=%s' % uber.session['SessionTicket']])
