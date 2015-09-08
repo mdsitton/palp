@@ -23,6 +23,12 @@ platformName = platformMap[platform.platform().split('-', 1)[0]]
 
 _sslContext = ssl.create_default_context()
 
+debug = False
+
+def _debug(*args):
+    if debug:
+        print(*args)
+
 def post_request(domain, resource, data, headers={}, disturb=True):
     url = '%s%s' % (domain, resource)
 
@@ -52,6 +58,35 @@ def get_request(domain, resource, headers={}, disturb=True):
         return responseData.decode('utf-8')
     else:
         return responseData
+MAX_ATTEMPTS = 4
+
+def download_file(url, checksum):
+
+    # Could probably use urllib.parse here, but this seems to work for now.
+    protoEndIndex = url.find('//') + 2
+    domainEndIndex = protoEndIndex + url[protoEndIndex:].find('/')
+
+    domain = url[:domainEndIndex]
+    resource = url[domainEndIndex:]
+
+    # Check that the download matches the checksum if not restart
+    # There will be a max of 3 retrys before an exception is raised
+    for i in range(MAX_ATTEMPTS):
+        bundleData = get_request(domain, resource, disturb=False)
+
+        bundleSHA1 = hashlib.sha1(bundleData).hexdigest()
+
+        if bundleSHA1 == checksum:
+            break
+        elif i != (MAX_ATTEMPTS - 1):
+            print('Download Failed, restarting.')
+        else:
+            print('Download Failed.')
+    else:
+        raise ConnectionError('Download failed, all attempts exausted.')
+
+    return bundleData
+
 
 def find_man_thread(start, stop, titleFolder, downloadUrl, authSuffix, pteBuild):
     print(start, stop, titleFolder, downloadUrl, authSuffix)
@@ -180,10 +215,11 @@ class Stream(object):
 
             bundleUsedSize = 0
 
+            print('%.1f%% - Bundle #%i out of %s' % (((i+1)/len(bundles))*100, i+1, len(bundles)))
+
             # Pre-screen to se what bundles need to be downloaded.
-            skipDownload = True
             for entry in bundle['entries']:
-                print(entry['filename'])
+                _debug(entry['filename'])
 
                 fullPath = path + entry['filename']
                 if os.path.isfile(fullPath):
@@ -197,30 +233,18 @@ class Stream(object):
 
                     if d.hexdigest() == entry['checksum']:
                         continue
-
-                skipDownload = False
-
-            if skipDownload:
-                print('bundle %s skipped' % i)
+            else:
+                _debug('bundle %s skipped' % i)
                 continue
 
+            _debug('Bundle Size:%s' % bsize)
 
-            print('Bundle #%i' % i, 'Total Size:%s' % bsize)
 
             recComp = (self.titleFolder, bundle['checksum'], self.authSuffix)
             resource = '/%s/hashed/%s%s' % recComp
-            
-            # Check that the download is correct if not restart
-            times = 0
-            while True:
-                times += 1
-                print('Times:', times)
-                bundleData = get_request(self.downloadUrl, resource, disturb=False)
 
-
-                bundleSHA1 = hashlib.sha1(bundleData).hexdigest()
-                if bundleSHA1 == bundle['checksum']:
-                    break
+            url = self.downloadUrl + resource
+            bundleData = download_file(url, bundle['checksum'])
 
             entryOffsetDupeCheck = []
             entryOffsetDupeCheckSize = []
@@ -244,23 +268,20 @@ class Stream(object):
                 offsetDupeCopy = entryOffsetDupeCheck[:]
                 offsetDupeSizeCopy = entryOffsetDupeCheckSize[:]
 
-                foundMatch = False
-
                 for i, offset in enumerate(offsetDupeCopy):
                     if offset == entryOffset:
-                        print('Offset Index of Duplicate:', i)
+                        _debug('Offset Index of Duplicate:', i)
                         if offsetDupeSizeCopy[i] == entrySize:
-                            print('DUPLICATE OFFSET FOUND!!!!!')
+                            _debug('DUPLICATE OFFSET SAME AS ORIGINAL!!!')
                         else:
                             if entrySize > offsetDupeSizeCopy[i]:
-                                print ('DUPLICATE OFFSET FOUND LARGER THAN ORIGINAL!!!')
+                                _debug('DUPLICATE OFFSET FOUND LARGER THAN ORIGINAL!!!')
                                 bundleUsedSize += entrySize - offsetDupeSizeCopy[i]
                             else:
-                                print ('DUPLICATE OFFSET FOUND SMALLER THAN ORIGINAL!!!')
-                        foundMatch = True
+                                _debug('DUPLICATE OFFSET FOUND SMALLER THAN ORIGINAL!!!')
                         break
-                if not foundMatch:
-                    print('Offset Index:', len(offsetDupeCopy))
+                else:
+                    _debug('Offset Index:', len(offsetDupeCopy))
                     entryOffsetDupeCheck.append(entryOffset)
                     entryOffsetDupeCheckSize.append(entrySize)
                     bundleUsedSize += entrySize
@@ -271,7 +292,7 @@ class Stream(object):
                 else:
                     entryData = gzip.decompress(bundleData[entryOffset:entryOffset+entrySize])
 
-                print('Bundle Entry Length:', len(bundleData[entryOffset:entryOffset+entrySize]))
+                #print('Bundle Entry Length:', len(bundleData[entryOffset:entryOffset+entrySize]))
 
                 try:
                     os.makedirs(fullPath.rsplit('/', 1)[0])
@@ -292,9 +313,10 @@ class Stream(object):
 
             leftover = bsize - bundleUsedSize
             totalLeftover += leftover
-            print('Unindexed size: ', leftover)
+            _debug('Unindexed size: ', leftover)
 
-        print(totalLeftover / 1000 / 1000)
+        if totalLeftover:
+            _debug(totalLeftover / 1000 / 1000)
 
 
 
